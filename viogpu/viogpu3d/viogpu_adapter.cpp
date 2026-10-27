@@ -3666,6 +3666,16 @@ void VioGpuAdapter::ConfigChanged(void)
                               before.YResolution,
                               after.XResolution,
                               after.YResolution));
+                    // The monitor comes back with the EDID dxgkrnl asks for
+                    // (QueryDeviceDescriptor), which was read once at start: the
+                    // host's EDID now describes the new size, so read it again.
+                    // With the boot EDID the returning monitor looked unchanged
+                    // and kept its saved mode: the default 1024x768, the first time.
+                    if (virtio_is_feature_enabled(m_u64HostFeatures, VIRTIO_GPU_F_EDID))
+                    {
+                        vidpn.GetEdids();
+                        vidpn.ParseEdidTiming();
+                    }
                     UpdateChildStatus(FALSE);
                 }
                 UpdateChildStatus(connected);
