@@ -254,11 +254,21 @@ bool GpuAdapter::SetResolution(PVIOGPU_DISP_MODE mode)
     PrintMessage(L"%ws m_Index %d %d (%dx%d)\n", __FUNCTIONW__, m_Index, ix, mode->XResolution, mode->YResolution);
     m_pDisplayModeInfo[ix].sourceMode.width = mode->XResolution;
     m_pDisplayModeInfo[ix].sourceMode.height = mode->YResolution;
-    SetDisplayConfig(m_PathArrayElements,
-                     m_pDisplayPathInfo,
-                     m_ModeInfoArrayElements,
-                     m_pDisplayModeInfo,
-                     SDC_APPLY | SDC_USE_SUPPLIED_DISPLAY_CONFIG | SDC_ALLOW_CHANGES | SDC_SAVE_TO_DATABASE);
+    // The path's target mode still describes the old raster, and the adapter
+    // has no scaler, so a source of another size against it is invalid
+    // (ERROR_INVALID_PARAMETER) and nothing changed.  Leave the target mode to
+    // Windows: it picks the one that drives the new source.
+    m_pDisplayPathInfo[m_Index].targetInfo.modeInfoIdx = DISPLAYCONFIG_PATH_MODE_IDX_INVALID;
+    LONG rc = SetDisplayConfig(m_PathArrayElements,
+                               m_pDisplayPathInfo,
+                               m_ModeInfoArrayElements,
+                               m_pDisplayModeInfo,
+                               SDC_APPLY | SDC_USE_SUPPLIED_DISPLAY_CONFIG | SDC_ALLOW_CHANGES | SDC_SAVE_TO_DATABASE);
+    if (rc != ERROR_SUCCESS)
+    {
+        PrintMessage(L"%ws SetDisplayConfig failed with %d\n", __FUNCTIONW__, rc);
+        return false;
+    }
     return true;
 }
 

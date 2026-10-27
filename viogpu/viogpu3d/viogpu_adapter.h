@@ -91,7 +91,9 @@ class VioGpuAdapter final : public HandleBase<"VIOGADAP"_M, VioGpuAdapter>, IVio
     // Per-scanout last-reported connect state, indexed by ChildUid.
     // UpdateChildStatus dedupes against this so DXGK only sees real
     // connected <-> disconnected transitions.
-    BOOLEAN m_scanoutConnected[MAX_CHILDREN] = {FALSE};
+    // QueryChildStatus reports the scanout connected from the start, so the
+    // cache starts there too; starting FALSE swallowed the first disconnect.
+    BOOLEAN m_scanoutConnected[MAX_CHILDREN] = {TRUE};
 
     ULONGLONG GetShmemPA() {
         if (!m_VioDev.shmem.available) {

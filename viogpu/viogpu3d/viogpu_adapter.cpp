@@ -832,14 +832,17 @@ VioGpuAdapter::QueryChildRelations(_Out_writes_bytes_(ChildRelationsSize) DXGK_C
     for (UINT ChildIndex = 0; ChildIndex < ChildRelationsCount; ++ChildIndex)
     {
         pChildRelations[ChildIndex].ChildDeviceType = TypeVideoOutput;
-        pChildRelations[ChildIndex].ChildCapabilities.HpdAwareness = IsVgaDevice() ? HpdAwarenessAlwaysConnected
-                                                                                   : HpdAwarenessInterruptible;
+        // Interruptible even when the adapter owns a POST display (VGA class):
+        // ConfigChanged re-announces the monitor to publish a new host size,
+        // and dxgkrnl ignores connection changes on an always-connected child.
+        pChildRelations[ChildIndex].ChildCapabilities.HpdAwareness = HpdAwarenessInterruptible;
         // Virtual virtio-gpu scanouts have no physical connector.
         // VOT_OTHER is the documented catch-all; HD15 would identify
         // the output as analog VGA D-Sub and gate off HDR/VRR via
         // connector-type heuristics in the shell.
-        pChildRelations[ChildIndex].ChildCapabilities.Type.VideoOutput.InterfaceTechnology = IsVgaDevice() ? D3DKMDT_VOT_INTERNAL
-                                                                                                           : D3DKMDT_VOT_OTHER;
+        // Not VOT_INTERNAL for a VGA-class adapter either: an internal panel
+        // has a fixed native mode, which a resizable host window is not.
+        pChildRelations[ChildIndex].ChildCapabilities.Type.VideoOutput.InterfaceTechnology = D3DKMDT_VOT_OTHER;
         pChildRelations[ChildIndex].ChildCapabilities.Type.VideoOutput.MonitorOrientationAwareness = D3DKMDT_MOA_NONE;
         pChildRelations[ChildIndex].ChildCapabilities.Type.VideoOutput.SupportsSdtvModes = FALSE;
         pChildRelations[ChildIndex].AcpiUid = 0;
@@ -3629,7 +3632,10 @@ void VioGpuAdapter::ConfigChanged(void)
     virtio_get_config(&m_VioDev, FIELD_OFFSET(GPU_CONFIG, events_read), &events_read, sizeof(events_read));
     if (events_read & VIRTIO_GPU_EVENT_DISPLAY)
     {
+        VIOGPU_DISP_MODE before = {0}, after = {0};
+        vidpn.EscapeCustomResoulution(&before);
         vidpn.GetDisplayInfo();
+        vidpn.EscapeCustomResoulution(&after);
         events_clear |= VIRTIO_GPU_EVENT_DISPLAY;
         virtio_set_config(&m_VioDev, FIELD_OFFSET(GPU_CONFIG, events_clear), &events_clear, sizeof(events_clear));
 
@@ -3644,6 +3650,24 @@ void VioGpuAdapter::ConfigChanged(void)
             {
                 ULONG xres = 0, yres = 0;
                 BOOLEAN connected = ctrlQueue.GetDisplayInfo(vbuf, i, &xres, &yres);
+                // dxgkrnl builds a monitor's source mode set (EDID modes plus
+                // RecommendMonitorModes) only when the monitor arrives, and
+                // prunes target modes that are not in it.  A new host size sits
+                // in the custom slot, but no path can use it until the monitor
+                // is announced again, so a resize became a fallback to the
+                // default mode.  Re-announce the monitor when the size changed.
+                if (connected && m_scanoutConnected[i] &&
+                    (before.XResolution != after.XResolution || before.YResolution != after.YResolution))
+                {
+                    DbgPrint(TRACE_LEVEL_FATAL,
+                             ("%s: custom mode %dx%d -> %dx%d, re-announcing the monitor\n",
+                              __FUNCTION__,
+                              before.XResolution,
+                              before.YResolution,
+                              after.XResolution,
+                              after.YResolution));
+                    UpdateChildStatus(FALSE);
+                }
                 UpdateChildStatus(connected);
             }
             ctrlQueue.ReleaseBuffer(vbuf);

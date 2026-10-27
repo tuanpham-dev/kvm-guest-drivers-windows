@@ -148,6 +148,20 @@ NTSTATUS VioGpuVidPN::Start(ULONG *pNumberOfViews, ULONG *pNumberOfChildren)
         }
     } else {
         DbgPrint(TRACE_LEVEL_FATAL, ("%s NOT a VGA device\n", __FUNCTION__));
+        // A non-VGA function can still carry the firmware's framebuffer (a
+        // linear GOP in one of its BARs).  dxgkrnl grants the POST display
+        // only to the adapter that owns it; taking it keeps Basic Display from
+        // driving that framebuffer as a second monitor whenever this
+        // adapter's monitor is re-announced (see ConfigChanged).  Without one
+        // the call fails and nothing changes.
+        NTSTATUS PostStatus = m_pDxgkInterface->DxgkCbAcquirePostDisplayOwnership(m_pDxgkInterface->DeviceHandle,
+                                                                                  &m_SystemDisplayInfo);
+        DbgPrint(TRACE_LEVEL_FATAL,
+                 ("%s POST display ownership: 0x%X (%dx%d)\n",
+                  __FUNCTION__,
+                  PostStatus,
+                  m_SystemDisplayInfo.Width,
+                  m_SystemDisplayInfo.Height));
     }
 
     DbgPrint(TRACE_LEVEL_FATAL,
